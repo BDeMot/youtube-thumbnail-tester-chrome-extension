@@ -10,6 +10,9 @@ const thumbnailInput = document.querySelector('.js-thumbnail-input')
 const errorMessageSpan = document.querySelector("#extErrorMessage")
 const darkModeBtn = document.querySelector('.js-darkmode-btn')
 const root = document.documentElement // to easily access and modify CSS custom properties for Dark/Light Mode
+const headerEye = document.querySelector('.js-header-eyes')
+const eyesPupils = document.querySelectorAll('.js-animated-eyes')
+
 // =============================================
 
 // =============================================
@@ -80,6 +83,7 @@ const previewVideo = document.querySelector('.preview-video-thumbnail');
 
 initInputs();
 
+// Init value from chrome store
 function initInputs() {
     chrome.storage.local.get("thumbnailProperties", (result) => {
         var storedThumbnail = result.thumbnailProperties;
@@ -118,7 +122,12 @@ shuffleBtn.addEventListener("click", async (e) => {
 })
 
 async function launchScript(shuffle = false) {
-    let [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+    let [tab] = await chrome.tabs.query({active: true, currentWindow: true})
+    // If the user is on another site than YT
+    if (tab === undefined || tab.url !== 'https://www.youtube.com/') {
+        chrome.storage.local.set({ errorMessage: "You need to be on the Youtube homepage !" })
+        return
+    }
 
     const title = titleInput.value
     const channelName = channelNameInput.value
@@ -144,17 +153,9 @@ async function launchScript(shuffle = false) {
         function: findCard,
     });
 
-
-    // Display potential errors when the click is done
-
-    // I can't get the return from findCard
-    // I can't execute code directly after findCard either
-    // Soooo this setTimeout of 100ms is a small hack
-    // Otherwise the error doesn't display on the first click
-    setTimeout(
-        function () {
-            checkForError();
-        }, 10);
+    // everything went smooth so we can close the popup to let the user enjoy
+    window.close();
+    chrome.storage.local.remove(['errorMessage']);
 }
 
 
@@ -210,12 +211,6 @@ function findCard(shuffle = false) {
         }
         let target = cards[cardPositionIndex]
 
-        // If the user is on another site than YT
-        if (typeof (target) === "undefined") {
-            chrome.storage.local.set({errorMessage: "You need to be on the Youtube homepage !"});
-            return;
-        }
-
         const thumbnail = target.querySelector('.yt-img-shadow')
         thumbnail.src = result.thumbnailProperties.thumbnail
 
@@ -243,21 +238,6 @@ function findCard(shuffle = false) {
     });
 }
 
-// Checks if an error is stored
-// If so then displays it and clears it
-function checkForError() {
-    chrome.storage.local.get(['errorMessage'], function (result) {
-        if (typeof (result.errorMessage) !== "undefined") {
-            errorMessageSpan.textContent = result.errorMessage;
-            errorMessageSpan.style.display = "block";
-        } else {
-            // everything went smooth so we can close the popup to let the user enjoy
-            window.close();
-        }
-    });
-    chrome.storage.local.remove(['errorMessage']);
-}
-
 // Removes the errors from storage and from the display
 function removeError() {
     errorMessageSpan.textContent = "";
@@ -280,3 +260,78 @@ function refreshApp() {
     thumbnailInput.value = null
 }
 
+
+// =============================================
+// ANIMATED EYES
+
+//First, we find the eyes position and their center :
+let eyeCoord = headerEye.getBoundingClientRect();
+let centerOfEyeX = Math.round(( ( eyeCoord.right - eyeCoord.left ) / 2 ) + eyeCoord.left);
+let centerOfEyeY = Math.round(( ( eyeCoord.bottom - eyeCoord.top ) / 2 ) + eyeCoord.top);
+
+
+//on mousemove, we locate the mouse position and compare its X & Y coordinates to eyes' center.
+// let=eyeDirection indicate the eyes direction in a "North, South, South East etc..." mode
+
+document.addEventListener('mousemove', (e) =>{
+    let mouseX = e.clientX;
+    let mouseY = e.clientY;
+    let eyeDirection;
+
+     
+    eyeDirection = mouseY < centerOfEyeY ? "N" : "S";
+    eyeDirection += mouseX < centerOfEyeX ? "W" : "E";
+     
+    if ( approx ( mouseX, centerOfEyeX ) ){
+        eyeDirection =  mouseY > centerOfEyeY ? "S" : "N";
+    }
+       
+    if (  approx ( mouseY, centerOfEyeY ) ){
+        eyeDirection = mouseX > centerOfEyeX ? "E" : "W";
+    }
+
+    if (  approx ( mouseY, centerOfEyeY ) && approx ( mouseX, centerOfEyeX )){
+        eyeDirection = "C";
+    }
+
+    // due "North", "South" etc ... are calculate on an approximative direction ( eyes' center +/- 10 px )
+    function approx(nbToCompare, nbToApprox){
+        return (  nbToApprox-10 < nbToCompare && nbToCompare < nbToApprox + 10)
+    }
+
+    function wichDirection(dir){
+        let direction = {
+            "N" : "(2px, -5px)",
+            "NE" : "(4px, -4px)",
+            "E" : "(5px, 0px)",
+            "SE" : "(4px, 4px)",
+            "S" : "(2px, 5px)",
+            "SW" : "(0px, 4px)",
+            "W" : "(0px, 0px)",
+            "NW" : "(0px, -4px)",
+            "C" : "(2px, 0px)",
+        }
+
+        return direction[dir];
+    }
+
+    function setPupilsDirection(dir){
+     for (let pupils of eyesPupils){
+         pupils.style.setProperty('transform', 'translate'+(dir));
+         
+        }
+    }
+
+    setPupilsDirection(wichDirection(eyeDirection));
+})
+
+// Handle chrome storage change
+chrome.storage.onChanged.addListener(function (changes, namespace) {
+    for (var key in changes) {
+        if (key === 'errorMessage') {
+            const storageChange = changes[key]
+            errorMessageSpan.textContent = storageChange.newValue
+            errorMessageSpan.style.display = "block"
+        }
+    }
+});
